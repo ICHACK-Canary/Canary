@@ -1,0 +1,29 @@
+pasta:
+  synonyms: ["pasta", "spaghetti", "penne", "fusilli", "macaroni", "noodles"]
+
+toilet_paper:
+  synonyms: ["toilet roll", "toilet paper", "loo roll", "bathroom tissue"]
+
+rice:
+  synonyms: ["rice", "basmati", "jasmine rice", "long grain"]
+
+flour:
+  synonyms: ["flour", "plain flour", "self-raising flour", "bread flour"]
+
+hand_sanitizer:
+  synonyms: ["hand sanitizer", "hand sanitiser", "hand gel", "antibac"]
+
+canned_goods:
+  synonyms: ["canned", "tinned", "beans", "canned goods", "tinned goods"]
+
+bread:
+  synonyms: ["bread", "loaf", "sliced bread"]
+
+milk:
+  synonyms: ["milk", "semi-skimmed", "whole milk", "oat milk"]
+
+eggs:
+  synonyms: ["eggs", "free range eggs", "box of eggs"]
+
+baby_formula:
+  synonyms: ["baby formula", "infant formula", "baby milk", "formula milk"]
