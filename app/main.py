@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from collections import defaultdict
+from pathlib import Path
 import json
 import os
 import random
@@ -352,6 +353,7 @@ def start_analysis(history_days: int = 14, lookback_days: int = 30):
                 continue
             try:
                 alert = json.loads(line)
+                print(alert)
                 alerts_store.append(alert)
                 key = (alert.get("country"), alert.get("product"))
                 existing = severity_store.get(key)
@@ -410,7 +412,11 @@ def get_alerts(
     - socialPosts (matched tweets with content, author, sentiment)
     """
     results = []
-    
+
+    alerts_path = Path(__file__).parent.parent / "processing" / "alerts.ndjson"
+    with open(alerts_path) as f:
+        alerts_store = json.load(f)
+
     # Process alerts (most recent first)
     for alert in reversed(alerts_store):
         # Apply filters
