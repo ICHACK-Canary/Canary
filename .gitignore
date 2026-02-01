@@ -43,4 +43,6 @@ htmlcov/
 *.sublime-workspace
 *.sublime-project
 .vscode/
-__pypackages__/
+__pypackages__/# pixi environments
+.pixi/*
+!.pixi/config.toml
