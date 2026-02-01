@@ -10,10 +10,13 @@ export default defineNuxtConfig({
     ],
   },
   modules: ["@nuxt/ui"],
-  runtimeConfig: {
-    public: {
-      apiBase: "http://localhost:8000",
+  $development: {
+    runtimeConfig: {
+      public: {
+        apiBase: "http://localhost:8000",
+      },
     },
   },
+  
   ssr: false,
 });

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Chart, registerables } from 'chart.js';
 const body = useTemplateRef<HTMLElement>('body');
 const config = useRuntimeConfig();
 const apiBase = config.public.apiBase;
@@ -55,7 +54,7 @@ const fallbackCommodities = [
 
 const { data: blogs } = await useFetch<BlogItem[]>(`${apiBase}/feed`, {
   default: () => fallbackBlogs,
-  server: false,
+  server: false
 });
 
 const { data: commodities } = await useFetch<{

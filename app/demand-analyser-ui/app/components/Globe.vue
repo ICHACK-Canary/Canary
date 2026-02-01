@@ -2,29 +2,8 @@
 import maplibregl from 'maplibre-gl'
 
 const mapEl = ref(null)
-
-const data = [
-  { lat: 37.7749, lng: -122.4194, weight: 10 }, // San Francisco
-  { lat: 34.0522, lng: -118.2437, weight: 8 },  // Los Angeles
-  { lat: 40.7128, lng: -74.0060, weight: 15 },  // New York
-  { lat: 51.5074, lng: -0.1278, weight: 12 },   // London
-  { lat: 35.6895, lng: 139.6917, weight: 20 },  // Tokyo
-  { lat: -33.8688, lng: 151.2093, weight: 5 }   // Sydney
-];
-
-const geojson = {
-  type: 'FeatureCollection',
-  features: data.map(d => ({
-    type: 'Feature',
-    geometry: {
-      type: 'Point',
-      coordinates: [d.lng, d.lat]
-    },
-    properties: {
-      weight: d.weight
-    }
-  }))
-}
+const config = useRuntimeConfig()
+const apiBase = config.public.apiBase;
 
 
 onMounted(() => {
@@ -42,8 +21,7 @@ onMounted(() => {
         // Heatmap layers also work with a vector tile source.
         map.addSource('earthquakes', {
             'type': 'geojson',
-            'data':
-                'https://maplibre.org/maplibre-gl-js/docs/assets/earthquakes.geojson'
+            'data': `${apiBase}/shortages`
         });
 
         map.addLayer(
