@@ -6,7 +6,6 @@ export default defineNuxtConfig({
   css: ["@/assets/css/main.css"],
   vite: {
     plugins: [
-      // @ts-expect-error this works but types aren't recognized
       tailwindcss(),
     ],
   },
@@ -16,4 +15,5 @@ export default defineNuxtConfig({
       apiBase: "http://localhost:8000",
     },
   },
+  ssr: false,
 });
