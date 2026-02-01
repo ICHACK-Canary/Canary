@@ -21,7 +21,7 @@ onMounted(() => {
         // Heatmap layers also work with a vector tile source.
         map.addSource('earthquakes', {
             'type': 'geojson',
-            'data': `${apiBase}/shortages`
+            'data': `${apiBase}/alerts/geojson`
         });
 
         map.addLayer(
