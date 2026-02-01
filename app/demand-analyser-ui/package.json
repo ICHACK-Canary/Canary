@@ -1,0 +1,27 @@
+{
+  "name": "demand-analyser-ui",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@nuxt/scripts": "0.13.2",
+    "@nuxt/ui": "^4.4.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "@unhead/vue": "^2.1.2",
+    "chart.js": "^4.5.1",
+    "maplibre-gl": "^5.17.0",
+    "nuxt": "^4.3.0",
+    "tailwindcss": "^4.1.18",
+    "vue": "^3.5.27",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.87"
+  }
+}
