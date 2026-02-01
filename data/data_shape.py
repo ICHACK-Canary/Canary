@@ -48,7 +48,7 @@ def transform_shortage_data(data):
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
     
-    input_filename = "PANIC_2020_PARTIAL.json"
+    input_filename = "PANIC_2020_HOURLY.json"
     output_filename = "flattened_trends_data.json"
 
     if os.path.exists(input_filename):
