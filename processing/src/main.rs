@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Point {
@@ -421,6 +421,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 accel_z,
             };
             println!("{}", serde_json::to_string(&alert)?);
+            io::stdout().flush().ok();
             st.confirmed_streak = 0;
             st.early_streak = 0;
         } else if st.early_streak >= early_k {
@@ -437,6 +438,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 accel_z,
             };
             println!("{}", serde_json::to_string(&alert)?);
+            io::stdout().flush().ok();
             st.early_streak = 0;
         }
 

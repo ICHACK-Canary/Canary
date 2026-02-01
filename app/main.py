@@ -1,11 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
+from pathlib import Path
 import json
 import os
 import random
+import subprocess
+import threading
+import tempfile
 
 app = FastAPI(title="Demand Analyser API")
 
@@ -65,6 +69,11 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 alerts_store: List[Dict[str, Any]] = []
 severity_store: Dict[tuple, Dict[str, Any]] = {}
 TWEETS: List[Dict] = []
+
+# Analysis subprocess state
+_analysis_process: Optional[subprocess.Popen] = None
+_analysis_thread: Optional[threading.Thread] = None
+_analysis_status: Dict[str, Any] = {"running": False, "alerts_ingested": 0}
 
 # =============================================================================
 # DATA LOADING
@@ -255,6 +264,9 @@ def read_root():
             "shortages": "/shortages - Legacy GeoJSON endpoint",
             "products": "/products - List tracked products",
             "countries": "/countries - List tracked countries",
+            "analysis_start": "/analysis/start - Start Rust anomaly detector",
+            "analysis_status": "/analysis/status - Check analysis progress",
+            "analysis_stop": "/analysis/stop - Stop running analysis",
         },
         "stats": {
             "alerts_loaded": len(alerts_store),
@@ -272,6 +284,113 @@ def refresh_alerts_endpoint(path: Optional[str] = None):
         "alert_count": len(alerts_store),
         "series_count": len(severity_store)
     }
+
+@app.post("/analysis/start")
+def start_analysis(history_days: int = 14, lookback_days: int = 30):
+    """Start the Rust anomaly detector as a subprocess and ingest alerts in real time."""
+    global _analysis_process, _analysis_thread, _analysis_status
+
+    if _analysis_status["running"]:
+        return {"status": "already_running", **_analysis_status}
+
+    # Load and split data
+    data_path = get_data_path("flattened_trends_data.json")
+    if not os.path.exists(data_path):
+        return {"status": "error", "detail": "flattened_trends_data.json not found"}
+
+    with open(data_path, "r", encoding="utf-8") as f:
+        records = json.load(f)
+    records.sort(key=lambda r: r["timestamp"])
+
+    # Split: oldest portion for baseline, newest history_days for live detection
+    newest_ts = records[-1]["timestamp"]
+    cutoff_dt = datetime.fromisoformat(newest_ts.replace("Z", "+00:00")) - timedelta(days=history_days)
+    cutoff_str = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    history = [r for r in records if r["timestamp"] <= cutoff_str]
+    live = [r for r in records if r["timestamp"] > cutoff_str]
+
+    if not history or not live:
+        return {"status": "error", "detail": f"Bad split: {len(history)} history, {len(live)} live"}
+
+    # Write history to temp file
+    history_fd = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    json.dump(history, history_fd)
+    history_fd.close()
+    history_path = history_fd.name
+
+    # Locate Rust binary
+    rust_bin = get_data_path("processing/target/release/trends_analyser")
+    if not os.path.exists(rust_bin):
+        os.unlink(history_path)
+        return {"status": "error", "detail": "Rust binary not found — run: cd processing && cargo build --release"}
+
+    proc = subprocess.Popen(
+        [rust_bin, history_path, str(lookback_days)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
+    )
+    _analysis_process = proc
+    _analysis_status = {"running": True, "alerts_ingested": 0, "live_total": len(live)}
+
+    def run():
+        # Feed live data to stdin in a separate thread to avoid pipe deadlock
+        def feed():
+            try:
+                for rec in live:
+                    proc.stdin.write(json.dumps(rec, separators=(",", ":")) + "\n")
+                proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+
+        feeder = threading.Thread(target=feed, daemon=True)
+        feeder.start()
+
+        # Read alerts from stdout in real time
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                alert = json.loads(line)
+                print(alert)
+                alerts_store.append(alert)
+                key = (alert.get("country"), alert.get("product"))
+                existing = severity_store.get(key)
+                if existing is None or alert.get("timestamp", "") > existing.get("timestamp", ""):
+                    severity_store[key] = alert
+                _analysis_status["alerts_ingested"] += 1
+            except json.JSONDecodeError:
+                continue
+
+        proc.wait()
+        _analysis_status["running"] = False
+        try:
+            os.unlink(history_path)
+        except OSError:
+            pass
+
+    _analysis_thread = threading.Thread(target=run, daemon=True)
+    _analysis_thread.start()
+
+    print(history)
+
+    return {"status": "started", "history_records": len(history), "live_records": len(live)}
+
+@app.get("/analysis/status")
+def analysis_status():
+    """Check the status of a running analysis."""
+    return _analysis_status
+
+@app.post("/analysis/stop")
+def stop_analysis():
+    """Stop a running analysis."""
+    global _analysis_process
+    if _analysis_process and _analysis_status["running"]:
+        _analysis_process.terminate()
+        _analysis_status["running"] = False
+        return {"status": "stopped", **_analysis_status}
+    return {"status": "not_running"}
 
 @app.get("/alerts")
 def get_alerts(
@@ -293,7 +412,11 @@ def get_alerts(
     - socialPosts (matched tweets with content, author, sentiment)
     """
     results = []
-    
+
+    alerts_path = Path(__file__).parent.parent / "processing" / "alerts.ndjson"
+    with open(alerts_path) as f:
+        alerts_store = json.load(f)
+
     # Process alerts (most recent first)
     for alert in reversed(alerts_store):
         # Apply filters
