@@ -5,7 +5,6 @@ const mapEl = ref(null)
 const config = useRuntimeConfig()
 const apiBase = config.public.apiBase;
 
-
 onMounted(() => {
   if (!mapEl.value) return
 
@@ -78,9 +77,9 @@ onMounted(() => {
                         ['linear'],
                         ['zoom'],
                         0,
-                        2,
+                        20,
                         9,
-                        20
+                        80
                     ],
                     // Transition from heatmap to circle layer by zoom level
                     'heatmap-opacity': [

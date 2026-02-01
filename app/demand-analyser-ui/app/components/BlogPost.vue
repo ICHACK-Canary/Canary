@@ -21,7 +21,7 @@ const viral = computed(() => {
 </script>
 
 <template>
-  <div class="border py-2 px-2 rounded-xl" :class="viral ? 'border-red-400 bg-red-400/10' : 'border-muted'" v-for="post in socialPosts" :key="post.id">
+  <div class="border py-2 px-2 rounded-xl my-2" :class="viral ? 'border-red-400 bg-red-400/10' : 'border-muted'" v-for="post in socialPosts" :key="post.id">
     <span v-if="viral" class="text-red-400 mb-2 flex items-center">
       <UIcon name="i-lucide-bolt" class="inline-block mr-1" />
       <strong class="uppercase">Viral Alert</strong>
@@ -31,13 +31,11 @@ const viral = computed(() => {
       <span class="text-end">{{ timeAgo }}</span>
     </div>
 
-    <USeparator class="my-2" />
-
     <p>{{ post.content }}</p>
 
-    <div class="mt-4 flex items-center  text-muted">
+    <div class="mt-4 flex items-center text-muted" v-if="location?.countryName">
       <UIcon name="i-lucide-map-pin" />
-      <span class="ml-2">{{ location }}</span>
+      <span class="ml-2">{{ location?.countryName }}</span>
     </div>
   </div>
 </template>

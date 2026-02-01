@@ -286,7 +286,7 @@ def refresh_alerts_endpoint(path: Optional[str] = None):
     }
 
 @app.post("/analysis/start")
-def start_analysis(history_days: int = 14, lookback_days: int = 30):
+def start_analysis(history_days: int = 14, lookback_days: int = 15):
     """Start the Rust anomaly detector as a subprocess and ingest alerts in real time."""
     global _analysis_process, _analysis_thread, _analysis_status
 
