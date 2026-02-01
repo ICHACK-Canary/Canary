@@ -18,9 +18,18 @@ struct ProductSeries {
 }
 
 #[derive(Debug, Deserialize)]
-struct RegionBlock {
-    region: String,
+struct CountryBlock {
+    country: String,
     products: Vec<ProductSeries>,
+}
+
+/// Flat record format from JSON files
+#[derive(Debug, Deserialize)]
+struct FlatRecord {
+    timestamp: DateTime<Utc>,
+    country: String,
+    product: String,
+    searches: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +48,7 @@ struct Baseline {
 #[derive(Debug, Deserialize)]
 struct LivePoint {
     timestamp: DateTime<Utc>,
-    region: String,
+    country: String,
     product: String,
     searches: f64,
 }
@@ -68,7 +77,7 @@ struct SeriesState {
 #[derive(Debug, Serialize)]
 struct Alert {
     timestamp: DateTime<Utc>,
-    region: String,
+    country: String,
     product: String,
     severity: String, // "EARLY" | "CONFIRMED"
     searches: f64,
@@ -153,48 +162,63 @@ fn compute_baseline_from_window(window: &VecDeque<Point>) -> Option<Baseline> {
     })
 }
 
-/// Initialize per-series windows and baselines from grouped historical data.
+/// Initialize per-series windows and baselines from flat historical data.
+/// Converts flat records into grouped series internally.
 fn init_states_from_history(
-    history: Vec<RegionBlock>,
+    flat_records: Vec<FlatRecord>,
     lookback_days: i64,
 ) -> HashMap<(String, String), SeriesState> {
-    let cutoff = Utc::now() - Duration::days(lookback_days);
     let mut states: HashMap<(String, String), SeriesState> = HashMap::new();
 
-    for region_block in history {
-        for series in region_block.products {
-            // Keep only points within lookback window.
-            // Points are newest first, so stop when below cutoff.
-            let mut window = VecDeque::with_capacity(series.points.len());
-            let mut day: Option<NaiveDate> = None;
+    // Find the max timestamp in the data to use as reference point
+    let max_ts = flat_records
+        .iter()
+        .map(|r| r.timestamp)
+        .max()
+        .unwrap_or_else(Utc::now);
+    let cutoff = max_ts - Duration::days(lookback_days);
 
-            for p in series.points {
-                if p.timestamp < cutoff {
-                    break;
-                }
-                if day.is_none() {
-                    day = Some(p.timestamp.date_naive());
-                }
-                window.push_back(p); // this preserves newest->oldest in Vec
+    // Group flat records by (country, product)
+    let mut grouped: HashMap<(String, String), Vec<Point>> = HashMap::new();
+    for rec in flat_records {
+        let key = (rec.country, rec.product);
+        grouped.entry(key).or_default().push(Point {
+            timestamp: rec.timestamp,
+            searches: rec.searches,
+        });
+    }
+
+    // Process each group
+    for ((country, product), mut points) in grouped {
+        // Sort by timestamp descending (newest first)
+        points.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        // Keep only points within lookback window
+        let mut window = VecDeque::with_capacity(points.len());
+        let mut day: Option<NaiveDate> = None;
+
+        for p in points {
+            if p.timestamp < cutoff {
+                continue; // skip old points but don't break (data might not be sorted)
             }
-
-            // Convert Vec(newest->oldest) into VecDeque with newest at front
-            // Our window representation is front newest, back oldest.
-            // Currently window is back-appended newest->oldest => front is newest already.
-            // (Because we iterated newest->oldest and push_back each time, the front is the first/newest.)
-            let baseline = compute_baseline_from_window(&window);
-
-            let key = (region_block.region.clone(), series.product.clone());
-            states.insert(
-                key,
-                SeriesState {
-                    window,
-                    baseline,
-                    current_day: day,
-                    ..Default::default()
-                },
-            );
+            if day.is_none() {
+                day = Some(p.timestamp.date_naive());
+            }
+            window.push_back(p);
         }
+
+        let baseline = compute_baseline_from_window(&window);
+
+        let key = (country, product);
+        states.insert(
+            key,
+            SeriesState {
+                window,
+                baseline,
+                current_day: day,
+                ..Default::default()
+            },
+        );
     }
 
     states
@@ -242,11 +266,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let level_mult: f64 = args.get(9).and_then(|s| s.parse().ok()).unwrap_or(1.10);
 
-    // Load historical grouped data and init state
+    // Load historical flat data and init state
     let f = File::open(history_path)?;
     let reader = BufReader::new(f);
-    let history: Vec<RegionBlock> = serde_json::from_reader(reader)?;
+    let history: Vec<FlatRecord> = serde_json::from_reader(reader)?;
+    eprintln!("Loaded {} historical records", history.len());
     let mut states = init_states_from_history(history, lookback_days);
+    eprintln!("Initialized {} series", states.len());
 
     // Live stream reader
     let stdin = io::stdin();
@@ -264,7 +290,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        let key = (lp.region.clone(), lp.product.clone());
+        let key = (lp.country.clone(), lp.product.clone());
         let st = states.entry(key.clone()).or_default();
 
         let ts = lp.timestamp;
@@ -342,7 +368,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if st.confirmed_streak >= confirm_k {
             let alert = Alert {
                 timestamp: ts,
-                region: lp.region.clone(),
+                country: lp.country.clone(),
                 product: lp.product.clone(),
                 severity: "CONFIRMED".to_string(),
                 searches: lp.searches,
@@ -358,7 +384,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if st.early_streak >= early_k {
             let alert = Alert {
                 timestamp: ts,
-                region: lp.region.clone(),
+                country: lp.country.clone(),
                 product: lp.product.clone(),
                 severity: "EARLY".to_string(),
                 searches: lp.searches,
