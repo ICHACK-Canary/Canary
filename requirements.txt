@@ -1,0 +1,7 @@
+pandas
+numpy
+tqdm
+vaderSentiment
+atproto
+fastapi
+uvicorn[standard]
