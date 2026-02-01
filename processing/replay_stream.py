@@ -24,35 +24,35 @@ def floor_to_hour(dt: datetime) -> datetime:
 
 def group_to_history_json(records):
     """
-    records: list of {timestamp(str), region, product, searches(float)}
+    records: list of {timestamp(str), country, product, searches(float)}
     returns grouped:
-      [{ region, products: [{ product, points: [{timestamp, searches}, ... newest-first]}]}]
+      [{ country, products: [{ product, points: [{timestamp, searches}, ... newest-first]}]}]
     """
     buckets = defaultdict(lambda: defaultdict(list))
     for r in records:
-        buckets[r["region"]][r["product"]].append({
+        buckets[r["country"]][r["product"]].append({
             "timestamp": r["timestamp"],
             "searches": float(r["searches"]),
         })
 
     out = []
-    for region in sorted(buckets.keys()):
+    for country in sorted(buckets.keys()):
         products = []
-        for product in sorted(buckets[region].keys()):
-            pts = buckets[region][product]
+        for product in sorted(buckets[country].keys()):
+            pts = buckets[country][product]
             # ensure newest-first
             pts.sort(key=lambda p: parse_ts(p["timestamp"]), reverse=True)
             products.append({"product": product, "points": pts})
-        out.append({"region": region, "products": products})
+        out.append({"country": country, "products": products})
     return out
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="From flat input sorted by decreasing timestamp: write most recent N days to history.json, then interactively emit older hours to NDJSON."
+        description="From flat input: write oldest N days to history.json (baseline), then interactively stream newer hours to NDJSON (simulating real-time)."
     )
-    ap.add_argument("input_json", help="Path to flat input JSON (list of records), newest-first.")
-    ap.add_argument("--history-days", type=int, required=True, help="Number of most recent days to put into history.json.")
+    ap.add_argument("input_json", help="Path to flat input JSON (list of records).")
+    ap.add_argument("--history-days", type=int, required=True, help="Number of oldest days to use as baseline history.")
     ap.add_argument("--history-out", default="history.json", help="Output path for history.json")
     ap.add_argument("--ndjson-out", default="live.ndjson", help="Output path for live NDJSON")
     args = ap.parse_args()
@@ -64,19 +64,19 @@ def main():
         print("Input JSON must be a non-empty list of records.", file=sys.stderr)
         sys.exit(1)
 
-    # Parse timestamps. Input is newest-first; we keep that order.
+    # Parse timestamps
     for r in records:
-        if not all(k in r for k in ("timestamp", "region", "product", "searches")):
-            raise ValueError("Each record must have timestamp, region, product, searches")
+        if not all(k in r for k in ("timestamp", "country", "product", "searches")):
+            raise ValueError("Each record must have timestamp, country, product, searches")
         r["_dt"] = parse_ts(r["timestamp"])
 
-    # Determine the "most recent N days" cutoff relative to the newest timestamp
-    newest = records[0]["_dt"]
-    history_start = newest - timedelta(days=args.history_days)
+    # Determine the oldest N days as history (baseline), rest is live (to replay)
+    oldest = min(r["_dt"] for r in records)
+    history_end = oldest + timedelta(days=args.history_days)
 
-    # history = records within [history_start, newest]
-    history_records = [r for r in records if r["_dt"] >= history_start]
-    live_records = [r for r in records if r["_dt"] < history_start]
+    # history = oldest records (baseline), live = newer records (to stream)
+    history_records = [r for r in records if r["_dt"] < history_end]
+    live_records = [r for r in records if r["_dt"] >= history_end]
 
     if not history_records:
         print("History set is empty. Increase --history-days or check timestamps.", file=sys.stderr)
@@ -86,7 +86,7 @@ def main():
     history_payload = group_to_history_json([
         {
             "timestamp": ts_to_str(r["_dt"]),
-            "region": r["region"],
+            "country": r["country"],
             "product": r["product"],
             "searches": float(r["searches"]),
         }
@@ -97,26 +97,26 @@ def main():
         json.dump(history_payload, f, indent=2)
 
     print(f"Wrote history to: {args.history_out}")
-    print(f"History window: {ts_to_str(history_start)} -> {ts_to_str(newest)}")
+    print(f"History window (baseline): {ts_to_str(oldest)} -> {ts_to_str(history_end)}")
     if live_records:
-        oldest_in_history = min(history_records, key=lambda x: x["_dt"])["_dt"]
-        print(f"Next live emission starts just before: {ts_to_str(oldest_in_history)}")
+        newest_live = max(live_records, key=lambda x: x["_dt"])["_dt"]
+        print(f"Live replay will stream: {ts_to_str(history_end)} -> {ts_to_str(newest_live)}")
     else:
         print("No remaining live records after history window (everything is in history).")
         sys.exit(0)
 
     print()
 
-    # Bucket remaining (older) live records by hour (UTC), still going newest->oldest
+    # Bucket live records by hour (UTC)
     hour_buckets = defaultdict(list)
     for r in live_records:
         hour = floor_to_hour(r["_dt"])
         hour_buckets[hour].append(r)
 
-    # We want to emit in decreasing time (newest hour first among the live set)
-    hours_desc = sorted(hour_buckets.keys(), reverse=True)
+    # Emit in ASCENDING time order (chronological, simulating real-time)
+    hours_asc = sorted(hour_buckets.keys())
 
-    print(f"Prepared {len(hours_desc)} hourly buckets for replay (older than history).")
+    print(f"Prepared {len(hours_asc)} hourly buckets for replay (newer than history).")
     print(f"Each Enter will append ONE hour of NDJSON to {args.ndjson_out}. Ctrl+C to stop.")
     print()
 
@@ -126,17 +126,17 @@ def main():
     ndjson_f = open(args.ndjson_out, "a", encoding="utf-8")
 
     try:
-        for i, hour in enumerate(hours_desc):
-            input(f"[{i+1}/{len(hours_desc)}] Press Enter to emit hour starting {ts_to_str(hour)} ...")
+        for i, hour in enumerate(hours_asc):
+            input(f"[{i+1}/{len(hours_asc)}] Press Enter to emit hour starting {ts_to_str(hour)} ...")
 
             bucket = hour_buckets[hour]
             # stable ordering within hour
-            bucket.sort(key=lambda r: (r["region"], r["product"]))
+            bucket.sort(key=lambda r: (r["country"], r["product"]))
 
             for r in bucket:
                 out_obj = {
                     "timestamp": ts_to_str(r["_dt"]),
-                    "region": r["region"],
+                    "country": r["country"],
                     "product": r["product"],
                     "searches": float(r["searches"]),
                 }

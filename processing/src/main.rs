@@ -237,6 +237,50 @@ fn update_window(window: &mut VecDeque<Point>, p: Point, cutoff: DateTime<Utc>) 
     }
 }
 
+/// Load history from JSON file, supporting both flat and grouped formats.
+/// Flat format: [{timestamp, country, product, searches}, ...]
+/// Grouped format: [{country, products: [{product, points: [{timestamp, searches}]}]}]
+fn load_history(path: &str) -> Result<Vec<FlatRecord>, Box<dyn std::error::Error>> {
+    let f = File::open(path)?;
+    let reader = BufReader::new(f);
+
+    // Parse as generic JSON first
+    let content: serde_json::Value = serde_json::from_reader(reader)?;
+
+    if let Some(arr) = content.as_array() {
+        if arr.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Check if first element has "products" (grouped format)
+        if let Some(first) = arr.first() {
+            if first.get("products").is_some() {
+                // Grouped format: [{country, products: [{product, points: [{timestamp, searches}]}]}]
+                let grouped: Vec<CountryBlock> = serde_json::from_value(content)?;
+                let mut flat = Vec::new();
+                for block in grouped {
+                    for ps in block.products {
+                        for pt in ps.points {
+                            flat.push(FlatRecord {
+                                timestamp: pt.timestamp,
+                                country: block.country.clone(),
+                                product: ps.product.clone(),
+                                searches: pt.searches,
+                            });
+                        }
+                    }
+                }
+                eprintln!("Loaded grouped format, converted to {} flat records", flat.len());
+                return Ok(flat);
+            }
+        }
+    }
+
+    // Default: parse as flat records
+    let flat: Vec<FlatRecord> = serde_json::from_value(content)?;
+    Ok(flat)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // CLI:
     // cargo run --release -- <history.json> <lookback_days> [alpha] [mad_floor] [early_z] [confirm_z] [early_k] [confirm_k] [level_mult]
@@ -266,10 +310,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let level_mult: f64 = args.get(9).and_then(|s| s.parse().ok()).unwrap_or(1.10);
 
-    // Load historical flat data and init state
-    let f = File::open(history_path)?;
-    let reader = BufReader::new(f);
-    let history: Vec<FlatRecord> = serde_json::from_reader(reader)?;
+    // Load historical data (supports both flat and grouped formats)
+    let history = load_history(history_path)?;
     eprintln!("Loaded {} historical records", history.len());
     let mut states = init_states_from_history(history, lookback_days);
     eprintln!("Initialized {} series", states.len());
